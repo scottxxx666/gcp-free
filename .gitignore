@@ -1,0 +1,20 @@
+# Agent secrets (agents/secrets/*.env)
+secrets/
+# bbgo strategy configs (agents/bbgo-config/*.yaml)
+bbgo-config/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+terraform.tfvars
+crash.log
+
+# Env files (keep only examples)
+*.env
+!*.env.example
+
+# IDE
+.idea/

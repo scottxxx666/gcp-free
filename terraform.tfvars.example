@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+project_id         = "my-project-id"
+billing_account_id = "012345-6789AB-CDEF01"
+
+# Optional overrides (defaults shown)
+# region               = "us-central1"   # us-west1 | us-central1 | us-east1
+# zone                 = "us-central1-a"
+# name_prefix          = "agents"
+# boot_disk_size_gb    = 30              # pd-standard, max 30
+# network_tier         = "PREMIUM"       # or STANDARD; see variables.tf
+# enable_ops_roles     = true            # false = no SA roles; container logs stay on the VM
+# budget_amount        = 5
+# budget_currency_code = "USD"           # must match the billing account currency
