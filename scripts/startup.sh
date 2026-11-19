@@ -155,6 +155,22 @@ install_warp() {
 
 install_warp || log "WARNING: cloudflare-warp setup failed; PTT will not be reachable"
 
+# --- keyring for ptt-agent's agy login ----------------------------------------
+# agy keeps its Google login in the Secret Service keyring over D-Bus, which a headless
+# VM lacks. ptt-agent's deploy/with-keyring.sh runs it inside a private D-Bus session
+# with an unlocked gnome-keyring. Only the packages are installed here.
+install_keyring_packages() {
+  if dpkg -s dbus gnome-keyring libsecret-1-0 >/dev/null 2>&1; then
+    return 0
+  fi
+  log "installing keyring packages"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update || return 1
+  apt-get install -y dbus gnome-keyring libsecret-1-0 || return 1
+}
+
+install_keyring_packages || log "WARNING: keyring package install failed; agy login will not persist"
+
 # --- non-root agent user -----------------------------------------------------
 # Runs last: if it fails, docker and the metadata block are already in place.
 # Not in the docker group: docker group membership is root-equivalent.
