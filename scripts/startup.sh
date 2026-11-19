@@ -116,6 +116,45 @@ systemctl restart docker-metadata-block.service
 
 systemctl enable --now docker >/dev/null
 
+# --- Cloudflare WARP, proxy mode ---------------------------------------------
+# PTT blocks GCP IPs. WARP in proxy mode listens on 127.0.0.1:40000 (SOCKS5) and
+# only processes that are pointed at it use it; routing and SSH are untouched.
+# Host loopback only: containers cannot reach it, and compose forbids host networking.
+# A failure here must not stop the user setup below, so each step returns instead of
+# relying on `set -e` (which is ignored inside an `if` condition).
+WARP_CLI=(warp-cli --accept-tos)
+
+install_warp() {
+  if ! dpkg -s cloudflare-warp >/dev/null 2>&1; then
+    log "installing cloudflare-warp"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update || return 1
+    apt-get install -y ca-certificates curl gnupg || return 1
+    curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg |
+      gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg || return 1
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+      >/etc/apt/sources.list.d/cloudflare-client.list || return 1
+    apt-get update || return 1
+    apt-get install -y cloudflare-warp || return 1
+  fi
+  systemctl enable --now warp-svc >/dev/null || return 1
+
+  local ready=0
+  for _ in $(seq 15); do
+    if "${WARP_CLI[@]}" status >/dev/null 2>&1; then ready=1; break; fi
+    sleep 1
+  done
+  [ "$ready" = 1 ] || return 1
+
+  if ! "${WARP_CLI[@]}" registration show >/dev/null 2>&1; then
+    "${WARP_CLI[@]}" registration new || return 1
+  fi
+  "${WARP_CLI[@]}" mode proxy || return 1
+  "${WARP_CLI[@]}" connect || return 1
+}
+
+install_warp || log "WARNING: cloudflare-warp setup failed; PTT will not be reachable"
+
 # --- non-root agent user -----------------------------------------------------
 # Runs last: if it fails, docker and the metadata block are already in place.
 # Not in the docker group: docker group membership is root-equivalent.
