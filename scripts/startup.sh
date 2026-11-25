@@ -205,4 +205,87 @@ fi
 install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_USER" /opt/agents
 install -d -m 0700 -o "$AGENT_USER" -g "$AGENT_USER" /opt/agents/secrets
 
+# --- Claude Code on a restricted user ----------------------------------------
+# Own user: no sudo, not in the docker group, no access to /opt/agents (0750 agent).
+# systemd-journal lets it read logs without sudo. Install from Anthropic's signed apt
+# repo (https://code.claude.com/docs/en/setup.md#install-with-linux-package-managers);
+# it does not auto-update, so upgrade with `apt-get install --only-upgrade claude-code`.
+# Official docs list 4 GB+ RAM; this VM has 1 GB, so measure before relying on it.
+CLAUDE_USER="claude"
+CLAUDE_KEY_FPR="31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE"
+
+setup_claude_user() {
+  if ! id "$CLAUDE_USER" >/dev/null 2>&1; then
+    log "creating user $CLAUDE_USER"
+    useradd --create-home --shell /bin/bash "$CLAUDE_USER" || return 1
+  fi
+  usermod -aG systemd-journal "$CLAUDE_USER" || return 1
+  # Fixed workdir: Claude Code remembers the trust prompt per directory, and the
+  # service has no TTY to answer it.
+  install -d -m 0755 -o "$CLAUDE_USER" -g "$CLAUDE_USER" "/home/$CLAUDE_USER/work"
+}
+
+install_claude_code() {
+  dpkg -s claude-code >/dev/null 2>&1 && return 0
+  log "installing claude-code and tmux"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update || return 1
+  apt-get install -y ca-certificates curl gnupg tmux || return 1
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://downloads.claude.ai/keys/claude-code.asc -o /etc/apt/keyrings/claude-code.asc || return 1
+  # Refuse a key that isn't Anthropic's published fingerprint.
+  if [ "$(gpg --show-keys --with-colons /etc/apt/keyrings/claude-code.asc | awk -F: '$1=="fpr"{print $10}')" != "$CLAUDE_KEY_FPR" ]; then
+    log "ERROR: claude-code signing key fingerprint mismatch"
+    rm -f /etc/apt/keyrings/claude-code.asc
+    return 1
+  fi
+  echo "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/stable stable main" \
+    >/etc/apt/sources.list.d/claude-code.list || return 1
+  apt-get update || return 1
+  apt-get install -y claude-code || return 1
+}
+
+# Remote Control runs in a tmux session so you can attach to answer prompts (login,
+# trust). Its own tmux socket (-L claude-rc) matters: with the default socket, any other
+# tmux session of this user would keep the tmux server alive after Remote Control exits,
+# and systemd would never see the service die, so it would never restart it.
+# Remote Control exits after ~10 min offline (docs), hence Restart=always.
+# MemoryHigh throttles instead of killing, so sshd stays responsive; 550M is an estimate
+# from ~390 MB measured with one light session, not a tuned value.
+# --capacity 1: each remote session is its own ~200-250 MB process.
+setup_claude_service() {
+  cat >/etc/systemd/system/claude-remote.service.new <<'EOF'
+[Unit]
+Description=Claude Code Remote Control (tmux)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=claude
+WorkingDirectory=/home/claude/work
+ExecStart=/usr/bin/tmux -L claude-rc new-session -d -s claude '/usr/bin/claude remote-control --capacity 1'
+Restart=always
+RestartSec=30
+MemoryHigh=550M
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  if ! cmp -s /etc/systemd/system/claude-remote.service.new /etc/systemd/system/claude-remote.service; then
+    log "installing claude-remote.service"
+    mv /etc/systemd/system/claude-remote.service.new /etc/systemd/system/claude-remote.service
+    systemctl daemon-reload || return 1
+  else
+    rm /etc/systemd/system/claude-remote.service.new
+  fi
+  systemctl enable --now claude-remote.service >/dev/null || return 1
+}
+
+setup_claude_user || log "WARNING: $CLAUDE_USER user setup failed"
+install_claude_code || log "WARNING: claude-code install failed"
+if id "$CLAUDE_USER" >/dev/null 2>&1 && dpkg -s claude-code >/dev/null 2>&1; then
+  setup_claude_service || log "WARNING: claude-remote service setup failed"
+fi
+
 log "done"

@@ -77,6 +77,36 @@ scripts/ssh.sh 'sudo docker ps'   # one-off command
 scripts/ssh.sh --bbgo             # shell inside the bbgo container
 ```
 
+## Claude Code on the VM
+
+`startup.sh` creates a `claude` user (no sudo, not in the docker group, can't read
+`/opt/agents`; member of `systemd-journal` to read logs), installs `claude-code` and
+`tmux` from Anthropic's signed apt repo, and runs `claude remote-control --capacity 1`
+as `claude-remote.service` inside a tmux session, from `/home/claude/work`.
+
+- **Memory:** the docs list 4 GB+ RAM; this VM has 1 GB. One light session measured
+  about 390 MB (server ~140 MB + one session process ~240 MB). Each extra remote session is
+  another ~200-250 MB process, hence `--capacity 1`. `MemoryHigh=550M` throttles the
+  service instead of killing it; that value is an estimate, not tuned.
+- **Restart:** `Restart=always`, because Remote Control exits after about 10 minutes offline.
+- **Own tmux socket (`-L claude-rc`):** so other tmux sessions can't keep the tmux server
+  alive after Remote Control exits, which would stop systemd from restarting it.
+
+```bash
+scripts/ssh.sh                                  # then on the VM:
+systemctl status claude-remote                  # service state
+sudo -iu claude tmux -L claude-rc attach -t claude   # see its screen (detach: Ctrl+b d)
+sudo -iu claude                                 # plain shell as claude (manual `claude`, login)
+journalctl -u claude-remote -e                  # service log
+sudo apt-get install --only-upgrade claude-code # apt installs don't auto-update
+```
+
+**First setup on a fresh VM:** log in once (`sudo -iu claude`, run `claude`, use a
+claude.ai subscription; API keys and `CLAUDE_CODE_OAUTH_TOKEN` don't work for Remote
+Control, and `ANTHROPIC_API_KEY` must be unset), accept the trust prompt in `~/work`, then
+`sudo systemctl restart claude-remote`. Until then the service waits for login or restarts
+every 30 s. If a prompt reappears later, attach to the tmux session and answer it.
+
 ## Docker is installed but disabled
 
 `startup.sh` disables `docker`, `docker.socket` and `containerd` on every boot to save
