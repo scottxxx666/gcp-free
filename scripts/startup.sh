@@ -125,7 +125,11 @@ systemctl enable docker-metadata-block.service >/dev/null
 # On the first run docker is already up and the unit never ran, so run it now.
 systemctl restart docker-metadata-block.service
 
-systemctl enable --now docker >/dev/null
+# Docker stays installed but off: nothing runs in containers right now, and dockerd
+# plus containerd cost memory on a 1 GB VM. docker.socket must go too, or the first
+# `docker` call would socket-activate dockerd again. To use containers again, delete
+# this line and run `systemctl enable --now docker.socket docker.service`.
+systemctl disable --now docker.service docker.socket containerd.service >/dev/null 2>&1 || true
 
 # --- Cloudflare WARP, proxy mode ---------------------------------------------
 # PTT blocks GCP IPs. WARP in proxy mode listens on 127.0.0.1:40000 (SOCKS5) and

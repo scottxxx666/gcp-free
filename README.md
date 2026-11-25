@@ -77,6 +77,14 @@ scripts/ssh.sh 'sudo docker ps'   # one-off command
 scripts/ssh.sh --bbgo             # shell inside the bbgo container
 ```
 
+## Docker is installed but disabled
+
+`startup.sh` disables `docker`, `docker.socket` and `containerd` on every boot to save
+memory on the 1 GB VM. Before using the sections below, delete the `systemctl disable --now docker.service ...`
+line in `scripts/startup.sh`, apply, and run
+`sudo systemctl enable --now docker.socket docker.service` on the VM. Otherwise the next
+boot turns docker off again.
+
 ## Run the agents
 
 ```bash
