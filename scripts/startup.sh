@@ -250,10 +250,26 @@ install_claude_code() {
 # tmux session of this user would keep the tmux server alive after Remote Control exits,
 # and systemd would never see the service die, so it would never restart it.
 # Remote Control exits after ~10 min offline (docs), hence Restart=always.
-# MemoryHigh throttles instead of killing, so sshd stays responsive; 550M is an estimate
-# from ~390 MB measured with one light session, not a tuned value.
-# --capacity 1: each remote session is its own ~200-250 MB process.
+# MemoryHigh throttles instead of killing, so sshd stays responsive. 700M is an estimate
+# (server ~140 MB + 2 session processes at ~240 MB), not a tuned value.
+# --capacity 2: each remote session is its own ~200-250 MB process. Run only one
+# at a time: two busy sessions plus the OS exceed the 1 GB of RAM and go into swap.
 setup_claude_service() {
+  local unit_changed=0
+  # Root-owned so remote sessions cannot widen their own inbound policy. Remote Control
+  # reads --settings once at start, so a changed file needs the restart below.
+  # accept: a bypass-mode receiver otherwise holds every cloud-session message for approval
+  # (docs: cross-session-messaging#control-inbound-messages).
+  cat >/etc/claude-remote-settings.json.new <<'EOF2'
+{"crossSessionInbound": "accept"}
+EOF2
+  if ! cmp -s /etc/claude-remote-settings.json.new /etc/claude-remote-settings.json; then
+    mv /etc/claude-remote-settings.json.new /etc/claude-remote-settings.json
+    chmod 644 /etc/claude-remote-settings.json
+    unit_changed=1
+  else
+    rm /etc/claude-remote-settings.json.new
+  fi
   cat >/etc/systemd/system/claude-remote.service.new <<'EOF'
 [Unit]
 Description=Claude Code Remote Control (tmux)
@@ -264,10 +280,10 @@ Wants=network-online.target
 Type=forking
 User=claude
 WorkingDirectory=/home/claude/work
-ExecStart=/usr/bin/tmux -L claude-rc new-session -d -s claude '/usr/bin/claude remote-control --capacity 1'
+ExecStart=/usr/bin/tmux -L claude-rc new-session -d -s claude '/usr/bin/claude remote-control --capacity 2 --settings /etc/claude-remote-settings.json'
 Restart=always
 RestartSec=30
-MemoryHigh=550M
+MemoryHigh=700M
 
 [Install]
 WantedBy=multi-user.target
@@ -276,10 +292,13 @@ EOF
     log "installing claude-remote.service"
     mv /etc/systemd/system/claude-remote.service.new /etc/systemd/system/claude-remote.service
     systemctl daemon-reload || return 1
+    unit_changed=1
   else
     rm /etc/systemd/system/claude-remote.service.new
   fi
   systemctl enable --now claude-remote.service >/dev/null || return 1
+  # enable --now does not restart a running service, so a new unit would not apply.
+  [ "$unit_changed" = 0 ] || systemctl restart claude-remote.service || return 1
 }
 
 setup_claude_user || log "WARNING: $CLAUDE_USER user setup failed"

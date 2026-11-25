@@ -81,13 +81,21 @@ scripts/ssh.sh --bbgo             # shell inside the bbgo container
 
 `startup.sh` creates a `claude` user (no sudo, not in the docker group, can't read
 `/opt/agents`; member of `systemd-journal` to read logs), installs `claude-code` and
-`tmux` from Anthropic's signed apt repo, and runs `claude remote-control --capacity 1`
+`tmux` from Anthropic's signed apt repo, and runs `claude remote-control --capacity 2`
 as `claude-remote.service` inside a tmux session, from `/home/claude/work`.
 
 - **Memory:** the docs list 4 GB+ RAM; this VM has 1 GB. One light session measured
   about 390 MB (server ~140 MB + one session process ~240 MB). Each extra remote session is
-  another ~200-250 MB process, hence `--capacity 1`. `MemoryHigh=550M` throttles the
-  service instead of killing it; that value is an estimate, not tuned.
+  another ~200-250 MB process. `--capacity 2` allows a second session, but run only one at
+  a time: two busy sessions exceed the 1 GB of RAM and go into swap. Whether an idle session
+  gives its memory back is unmeasured. `MemoryHigh=700M` throttles the service instead of
+  killing it; that value is an estimate, not tuned.
+- **Inbound messages:** the service passes `--settings /etc/claude-remote-settings.json`
+  (root-owned) with `crossSessionInbound: accept`. Without it, a bypass-mode session holds
+  every message from a cloud session for manual approval. Accepted messages drive the VM's
+  Claude with no approval step. Remote Control reads the file only at start, so
+  `startup.sh` restarts the service when it changes. Cloud sessions can't `SendMessage`
+  replies back from another machine; the PR is the reliable completion signal.
 - **Restart:** `Restart=always`, because Remote Control exits after about 10 minutes offline.
 - **Own tmux socket (`-L claude-rc`):** so other tmux sessions can't keep the tmux server
   alive after Remote Control exits, which would stop systemd from restarting it.
