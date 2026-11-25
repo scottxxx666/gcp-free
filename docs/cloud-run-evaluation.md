@@ -75,11 +75,37 @@ Job 設 `max-retries=0`、task timeout 600 秒、1 vCPU / 2 GiB。
 - 需設定 `git config user.name` 和 `user.email`。
 - 安全:憑證只給單一 repo;`main` 設分支保護,只允許推分支再開 PR;注意 repo 內容的 prompt injection。
 
+## 替代方案:雲端 coding agent(取代 Cloud Run 的 Claude Code Job)
+
+Cloud Run 省不到錢:PTT 和 bbgo 都得留在 VM,外部 IP 的費用拿不掉。能搬的只有「寫專案」,
+而它可以交給訂閱內含的雲端 agent,不必自己管 token、git 憑證和映像。
+
+| 工作 | 放哪裡 |
+|---|---|
+| 從手機請 agent 改專案 | Claude Code 雲端 session / `/schedule` routine(含在 Claude 訂閱內),或 Codex cloud(含在 ChatGPT 訂閱內) |
+| PTT 發文、bbgo | 留在 VM(IP 白名單、常駐、WARP) |
+
+Codex cloud 的限制(來源:[Codex Cloud environments (legacy)](https://learn.chatgpt.com/docs/environments/cloud-environment)、
+[internet access](https://learn.chatgpt.com/docs/cloud/internet-access);讀的是 Legacy 頁面,新版指南沒讀到):
+
+- 流程是建容器、checkout repo、跑 setup script、agent 改程式、產出 diff 或 PR。
+- Agent 階段預設不能上網;可選不放行 / 常見依賴網域 / 全開。建議只放行 GET、HEAD、OPTIONS,POST 等會被擋。
+- Secrets 只在 setup script 可用,agent 階段開始前移除。因此**不要給它 PTT 帳密或 Binance 金鑰**,
+  只讓它碰 repo 內容。
+- 不適合 PTT 發文(POST 被擋、出口 IP 是否被 PTT 擋沒驗證)和常駐的 bbgo。
+- 做法:產出一律走分支加 PR,`main` 設分支保護;提防 repo 或網頁內容的 prompt injection。
+
+**Unverified,需實際試:**
+
+1. 手機能否直接下任務(ChatGPT App 的 Codex、Claude App 的雲端 session)。
+2. Codex 單次任務時長和訂閱額度;能否排程或用 API 觸發。
+3. 這個 repo 能否在 Codex 沙箱跑 `make check`(terraform、shellcheck、compose)。可以的話,把檢查指令寫進 `AGENTS.md`。
+
 ## 現狀與下一步
 
 - 測試用的 Cloud Run Job、Artifact Registry 儲存庫、secret、服務帳戶都已刪除;三個 API
   (`run`、`artifactregistry`、`secretmanager`)仍啟用,沒有資源就沒有費用。測試用的 token 需到 Claude 帳號設定撤銷。
-- 若要重啟,**先驗證 PTT 加 WARP 在 Cloud Run 能不能運作**,這決定整個搬遷是否可行;
-  接著驗證 git clone/push 流程;最後才評估 bbgo 是否保留 VM。
+- **決定(2026-11-25):放棄 Cloud Run**,改用雲端 coding agent,見下一節。
+  若日後仍想重啟 Cloud Run,先驗證 PTT 加 WARP 能否運作,再驗證 git clone/push,最後才評估 bbgo。
 - 其他保留項目:預設 VPC 的 `default-allow-ssh` 和 `default-allow-rdp`(來源 0.0.0.0/0)仍存在,
   VM 在自訂 VPC 不受影響,但建議刪除。
