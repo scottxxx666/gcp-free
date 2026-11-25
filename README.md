@@ -19,7 +19,7 @@ agents from each other and from the VM's credentials.
 | `network.tf` | Custom VPC + subnet, one firewall rule: IAP `35.235.240.0/20` → tcp/22 on the `<prefix>-iap-ssh` tag |
 | `iam.tf` | Dedicated VM service account; logWriter + metricWriter only (`enable_ops_roles`, on by default) |
 | `budget.tf` | Billing budget with alerts at 50% and 100% |
-| `scripts/startup.sh` | Swap, docker-ce, Docker log driver, `agent` user, metadata-server block for containers |
+| `scripts/startup.sh` | Swap, exim4 removal, docker-ce, Docker log driver, `agent` user, metadata-server block for containers |
 | `agents/docker-compose.yml` | Hardened compose template with `agent-a` and `agent-b` |
 | `agents/wrapper/Dockerfile` | Wraps any agent image: uid/gid 1000 user, `/data` owned by it for the named volume |
 | `Makefile` | `make check`: static checks (terraform fmt/validate, shellcheck, compose config) |

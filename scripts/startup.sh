@@ -20,6 +20,17 @@ if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
 fi
 grep -qE '^/swapfile[[:space:]]' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
 
+# --- remove exim4 ------------------------------------------------------------
+# The Debian image ships a local mail daemon (~15 MB RSS) that nothing here uses;
+# on a 1 GB VM that memory is better left free. A failure must not stop the steps below.
+remove_exim4() {
+  dpkg -s exim4-base >/dev/null 2>&1 || return 0
+  log "removing exim4"
+  DEBIAN_FRONTEND=noninteractive apt-get purge -y exim4-base exim4-config 'exim4-daemon-*' || return 1
+}
+
+remove_exim4 || log "WARNING: exim4 removal failed"
+
 # --- docker logging ----------------------------------------------------------
 # Runs before the docker install so a fresh dockerd starts with this config
 # instead of restarting to pick it up.
