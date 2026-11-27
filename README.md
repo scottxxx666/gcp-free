@@ -153,6 +153,31 @@ git config --global user.name "…"; git config --global user.email "…"
 The token has the account's full `repo` scope and sits in `~/.config/gh/hosts.yml`, which
 any session on the VM can read (see [docs/tech-debt.md](docs/tech-debt.md)).
 
+## Update ptt-agent on the VM
+
+ptt-agent is its own repo, checked out at `/opt/ptt-agent/app` and run by systemd timers
+(`ptt-agent.timer`, `ptt-agent-weverse.timer`). Nothing in this repo deploys it. To update, re-run its
+installer on the VM (`scripts/ssh.sh` first):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/scottxxx666/ptt-agent/main/deploy/install.sh | sudo bash
+```
+
+It is safe to repeat: `git pull --ff-only` as the `ptt-agent` user, `uv sync --frozen`, reinstall
+the unit files and `daemon-reload`. It leaves `/etc/ptt-agent.env`, state files, the agy login, the
+Weverse token and which timers are enabled alone. The services are oneshot, so no restart is
+needed; the next run uses the new code.
+
+- **New env vars:** an existing `/etc/ptt-agent.env` is never overwritten. Add new variables with
+  `sudoedit /etc/ptt-agent.env`.
+- **`--ff-only` fails** if files in `/opt/ptt-agent/app` were edited on the VM. Discard those edits.
+- **Code-only change:** `sudo -u ptt-agent git -C /opt/ptt-agent/app pull --ff-only` is enough.
+- **Verify with the dry run** (test c in ptt-agent's README), not `systemctl start`: that posts to
+  the live board.
+- **Changed timer schedule:** check the NEXT column of `systemctl list-timers 'ptt-agent*'`. If it
+  is stale, `sudo systemctl restart ptt-agent.timer` (or `ptt-agent-weverse.timer`). Unverified
+  that `daemon-reload` alone applies it.
+
 ## Docker is installed but disabled
 
 `startup.sh` disables `docker`, `docker.socket` and `containerd` on every boot to save
