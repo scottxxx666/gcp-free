@@ -84,6 +84,11 @@ scripts/ssh.sh --bbgo             # shell inside the bbgo container
 `tmux` from Anthropic's signed apt repo, and runs `claude remote-control --capacity 2`
 as `claude-remote.service` inside a tmux session, from `/home/claude/work`.
 
+- **Permission mode:** `--permission-mode auto` starts spawned sessions in auto mode. If the
+  model doesn't support auto, they start in Manual. A one-time "switch to auto?" prompt may
+  appear on some plans; attach to the tmux session to answer it. WebFetch, WebSearch and
+  `curl` ran without prompts in auto mode (tested 2026-11-27). Auto mode is not an isolation
+  boundary: see [docs/tech-debt.md](docs/tech-debt.md) for the remaining hardening.
 - **Memory:** the docs list 4 GB+ RAM; this VM has 1 GB. One light session measured
   about 390 MB (server ~140 MB + one session process ~240 MB). Each extra remote session is
   another ~200-250 MB process. `--capacity 2` allows a second session, but run only one at
@@ -91,7 +96,7 @@ as `claude-remote.service` inside a tmux session, from `/home/claude/work`.
   gives its memory back is unmeasured. `MemoryHigh=700M` throttles the service instead of
   killing it; that value is an estimate, not tuned.
 - **Inbound messages:** the service passes `--settings /etc/claude-remote-settings.json`
-  (root-owned) with `crossSessionInbound: accept`. Without it, a bypass-mode session holds
+  (root-owned) with `crossSessionInbound: accept`. Without it, a bypass-mode receiver holds
   every message from a cloud session for manual approval. Accepted messages drive the VM's
   Claude with no approval step. Remote Control reads the file only at start, so
   `startup.sh` restarts the service when it changes. Cloud sessions can't `SendMessage`
@@ -114,6 +119,24 @@ claude.ai subscription; API keys and `CLAUDE_CODE_OAUTH_TOKEN` don't work for Re
 Control, and `ANTHROPIC_API_KEY` must be unset), accept the trust prompt in `~/work`, then
 `sudo systemctl restart claude-remote`. Until then the service waits for login or restarts
 every 30 s. If a prompt reappears later, attach to the tmux session and answer it.
+
+## Codex cloud from the VM's Claude
+
+`startup.sh` installs the Codex CLI to `/usr/local/bin/codex` (static binary, no Node).
+The VM's Claude submits chores with `codex cloud exec --env <ENV_ID> "<task>"` and polls
+`codex cloud list --json`, so the work runs on OpenAI's side instead of in the 1 GB of RAM.
+`codex cloud` is marked Experimental in the CLI reference, and `status`/`diff`
+subcommands are not in the official docs: run `codex cloud --help` after installing.
+
+- **Login (once, manual):** `sudo -iu claude`, then `codex login --device-auth`. Device
+  code login must first be enabled in ChatGPT security settings. Keep `~/.codex/auth.json`
+  on this VM only: OpenAI's CI/CD auth guide allows one `auth.json` per machine, on trusted
+  private infrastructure, and recommends API keys for automation.
+- **Environment:** create a Codex cloud environment for the repo in ChatGPT first; its id
+  is the `--env` value.
+- **Memory:** the CLI's memory use is unmeasured. Check `/usr/bin/time -v codex cloud list`.
+- **Upgrade:** `sudo rm /usr/local/bin/codex`, then reboot the VM (startup runs on every
+  boot); the binary is not auto-updated.
 
 ## Docker is installed but disabled
 

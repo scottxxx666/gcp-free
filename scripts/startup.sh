@@ -252,6 +252,8 @@ install_claude_code() {
 # Remote Control exits after ~10 min offline (docs), hence Restart=always.
 # MemoryHigh throttles instead of killing, so sshd stays responsive. 700M is an estimate
 # (server ~140 MB + 2 session processes at ~240 MB), not a tuned value.
+# --permission-mode auto: starting mode for spawned sessions (falls back to Manual if the
+# model doesn't support auto). Must follow `remote-control`, or it isn't passed on.
 # --capacity 2: each remote session is its own ~200-250 MB process. Run only one
 # at a time: two busy sessions plus the OS exceed the 1 GB of RAM and go into swap.
 setup_claude_service() {
@@ -280,7 +282,7 @@ Wants=network-online.target
 Type=forking
 User=claude
 WorkingDirectory=/home/claude/work
-ExecStart=/usr/bin/tmux -L claude-rc new-session -d -s claude '/usr/bin/claude remote-control --capacity 2 --settings /etc/claude-remote-settings.json'
+ExecStart=/usr/bin/tmux -L claude-rc new-session -d -s claude '/usr/bin/claude remote-control --capacity 2 --permission-mode auto --settings /etc/claude-remote-settings.json'
 Restart=always
 RestartSec=30
 MemoryHigh=700M
@@ -301,10 +303,30 @@ EOF
   [ "$unit_changed" = 0 ] || systemctl restart claude-remote.service || return 1
 }
 
+# Codex CLI: lets the VM's Claude hand chores to Codex cloud (`codex cloud exec`) so the
+# work runs on OpenAI's side and costs the 1 GB VM almost no memory. The release is a
+# static musl binary, so Node is not needed. e2-micro is x86_64. Installed once: it does
+# not auto-update, so delete /usr/local/bin/codex and rerun startup.sh to upgrade.
+# Login is manual (`codex login --device-auth` as the claude user); the auth.json stays on
+# this VM only, as OpenAI's CI/CD auth guide requires (one auth.json per machine).
+install_codex_cli() {
+  [ -x /usr/local/bin/codex ] && return 0
+  log "installing codex cli"
+  local tmp
+  tmp=$(mktemp -d) || return 1
+  if curl -fsSL "https://github.com/openai/codex/releases/latest/download/codex-x86_64-unknown-linux-musl.tar.gz" |
+    tar -xz -C "$tmp"; then
+    install -m 0755 "$tmp"/codex-x86_64-unknown-linux-musl /usr/local/bin/codex
+  fi
+  rm -rf "$tmp"
+  [ -x /usr/local/bin/codex ]
+}
+
 setup_claude_user || log "WARNING: $CLAUDE_USER user setup failed"
 install_claude_code || log "WARNING: claude-code install failed"
 if id "$CLAUDE_USER" >/dev/null 2>&1 && dpkg -s claude-code >/dev/null 2>&1; then
   setup_claude_service || log "WARNING: claude-remote service setup failed"
 fi
+install_codex_cli || log "WARNING: codex cli install failed"
 
 log "done"
