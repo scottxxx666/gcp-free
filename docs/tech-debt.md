@@ -4,10 +4,12 @@
 
 The Remote Control service runs in auto mode (`--permission-mode auto`). The classifier
 checks each action, but the docs say it is not an isolation boundary. A prompt-injected
-session could read `~/.codex/auth.json` or the Claude login credentials and send them out.
+session could read `~/.codex/auth.json`, `~/.config/gh/hosts.yml` or the Claude login
+credentials and send them out.
 
 - **Fix:** add `permissions.deny` rules to the `/etc/claude-remote-settings.json` heredoc
-  in `setup_claude_service`, e.g. `Read(~/.codex/auth.json)` and the Claude credentials file.
+  in `setup_claude_service`, e.g. `Read(~/.codex/auth.json)`, `Read(~/.config/gh/hosts.yml)` and the Claude
+  credentials file.
 - **Unverified:** the Claude credentials file name under `~/.claude` on the VM. Check it
   with `sudo ls -a /home/claude/.claude` before writing the rule.
 - **Limit:** this stops only the Read tool. `cat` in Bash still works unless the Bash

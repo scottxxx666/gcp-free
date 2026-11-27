@@ -322,11 +322,24 @@ install_codex_cli() {
   [ -x /usr/local/bin/codex ]
 }
 
+# GitHub CLI: the VM's Claude pushes and opens PRs through it. Debian's own package, not
+# cli.github.com's repo: older, but no extra apt source or key to maintain. Login is manual
+# (`gh auth login`, then `gh auth setup-git` as the claude user); the token stays in
+# ~/.config/gh/hosts.yml and has the account's full `repo` scope.
+install_gh_cli() {
+  dpkg -s gh >/dev/null 2>&1 && return 0
+  log "installing gh"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update || return 1
+  apt-get install -y git gh || return 1
+}
+
 setup_claude_user || log "WARNING: $CLAUDE_USER user setup failed"
 install_claude_code || log "WARNING: claude-code install failed"
 if id "$CLAUDE_USER" >/dev/null 2>&1 && dpkg -s claude-code >/dev/null 2>&1; then
   setup_claude_service || log "WARNING: claude-remote service setup failed"
 fi
 install_codex_cli || log "WARNING: codex cli install failed"
+install_gh_cli || log "WARNING: gh install failed; git push from the VM will not authenticate"
 
 log "done"
